@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>R09 Navigator - Shareable</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --blue: #2196f3;
+            --blue-dark: #1565c0;
+            --green: #43a047;
+            --gray: #757575;
+            --bg: #f4f6f9;
+            --card: #ffffff;
+            --danger: #d32f2f;
+        }
+
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background: var(--bg);
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            flex: 1.15;
+            width: 100%;
+            z-index: 1;
+            border-bottom: 2px solid #dfe6ee;
+        }
+
+        #panel {
+            flex: 1;
+            overflow-y: auto;
+            background: var(--card);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .status {
+            font-size: 13px;
+            text-align: center;
+            color: #666;
+            background: #f7f9fb;
+            border-radius: 10px;
+            padding: 8px 10px;
+        }
+
+        .box-present {
+            background: #e3f2fd;
+            border: 2px solid var(--blue);
+            border-radius: 12px;
+            padding: 14px;
+            color: var(--blue-dark);
+            text-align: center;
+        }
+
+        .target-name {
+            font-size: 20px;
+            font-weight: 700;
+            margin: 6px 0;
+        }
+
+        .dist-val {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--danger);
+        }
+
+        .subtext {
+            font-size: 13px;
+            color: #555;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+            font-size: 14px;
+            flex: 1;
+        }
+
+        .btn:active { transform: scale(0.99); }
+        .btn-confirm { background: var(--green); color: white; flex: 2; }
+        .btn-undo { background: var(--gray); color: white; }
+        .btn-center { background: var(--blue); color: white; }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .shop-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 14px;
+            border: 1px solid #edf1f5;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .shop-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-bottom: 1px solid #edf1f5;
+            background: white;
+        }
+
+        .shop-item:last-child { border-bottom: none; }
+        .shop-name { font-weight: 600; }
+        .shop-dist { color: #444; font-size: 13px; white-space: nowrap; }
+
+        .hint {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.5;
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .pulse-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--blue);
+            display: inline-block;
+            box-shadow: 0 0 0 rgba(33, 150, 243, 0.4);
+            animation: pulse 1.7s infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.55); }
+            70% { box-shadow: 0 0 0 12px rgba(33, 150, 243, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0); }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="panel">
+        <div id="gps-status" class="status">รอสัญญาณ GPS...</div>
+
+        <div class="box-present">
+            <div><span class="pulse-dot"></span>เป้าหมายที่ใกล้ที่สุด</div>
+            <div class="target-name" id="target-name">กำลังค้นหา...</div>
+            <div class="dist-val" id="present-dist">-</div>
+            <div class="subtext" id="drive-time"></div>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-center" onclick="recenterMap()">🎯 ตามฉัน</button>
+            <button class="btn btn-undo" onclick="undoDelivery()">⏪ กดย้อน</button>
+            <button class="btn btn-confirm" onclick="confirmDelivery()">✅ ส่งสำเร็จ</button>
+        </div>
+
+        <div>
+            <div class="section-title">📋 ร้านที่เหลือ (<span id="count-left">0</span> ร้าน)</div>
+            <ul class="shop-list" id="shop-list-container"></ul>
+        </div>
+
+        <div class="hint">
+            เวลาแชร์ให้เพื่อนใช้งาน: ให้อัปโหลดไฟล์นี้ขึ้นเว็บแบบ HTTPS ก่อน แล้วค่อยส่งลิงก์ให้เปิดจากมือถือ
+        </div>
+    </div>
+
+    <script>
+        let map, markerMe, accuracyCircle;
+        let routeLine = null;
+        let currentLocation = null;
+        let shopMarkers = [];
+        let historyStores = [];
+        let targetStoreIndex = -1;
+        let autoFollow = true;
+        let lastAnimatedLatLng = null;
+        let lastRouteFetchTime = 0;
+        let lastRouteFetchLocation = null;
+        let lastRoutingTargetId = null;
+
+        let pendingStores = [
+            { id: 1, name: "จันทิมา", lat: 14.81273, lng: 99.83315 },
+            { id: 2, name: "รัชนี", lat: 14.83847, lng: 99.68527 },
+            { id: 3, name: "วสันต์", lat: 14.84215, lng: 99.6914 },
+            { id: 4, name: "เซฟซุปเปอร์", lat: 14.83882, lng: 99.68513 },
+            { id: 5, name: "ป้าฝน", lat: 14.81982, lng: 99.85347 },
+            { id: 6, name: "สุนทร", lat: 14.8788, lng: 99.95708 },
+            { id: 7, name: "บุญส่ง", lat: 14.85447, lng: 99.96077 },
+            { id: 8, name: "ทรัพย์สม", lat: 14.839433, lng: 99.949892 },
+            { id: 9, name: "ไสว", lat: 14.838336, lng: 99.937142 },
+            { id: 10, name: "ศรีประเสริฐ", lat: 14.88375, lng: 99.92183 },
+            { id: 11, name: "สุเทพ", lat: 14.87255, lng: 99.8527 },
+            { id: 12, name: "ปานกลาง", lat: 14.861684, lng: 99.810489 },
+            { id: 13, name: "ประพาย", lat: 14.842341, lng: 99.813382 },
+            { id: 14, name: "จำนง", lat: 14.7762, lng: 99.82467 },
+            { id: 15, name: "สุ", lat: 14.78702, lng: 99.85828 },
+            { id: 16, name: "รำพอง", lat: 14.79085, lng: 99.87845 },
+            { id: 17, name: "สุรีย์", lat: 14.76412, lng: 99.77777 },
+            { id: 18, name: "อรุณ", lat: 14.76463, lng: 99.76963 },
+            { id: 19, name: "น้องครีม", lat: 14.786347, lng: 99.747508 },
+            { id: 20, name: "พอเพียง", lat: 14.788417, lng: 99.749578 },
+            { id: 21, name: "ห้างหุ้นส่วนสามัญศราธร", lat: 14.78985, lng: 99.73575 },
+            { id: 22, name: "แม่หญิงสยาม", lat: 14.814396, lng: 99.655211 },
+            { id: 23, name: "จตุพร", lat: 14.8147, lng: 99.65552 }
+        ];
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const p1 = lat1 * Math.PI / 180;
+            const p2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180;
+            const dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp / 2) * Math.sin(dp / 2) +
+                      Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function createUserIcon() {
+            return L.divIcon({
+                className: '',
+                html: `
+                    <div style="position: relative; width: 22px; height: 22px;">
+                        <div style="position:absolute; inset:0; border-radius:50%; background: rgba(33,150,243,0.28); animation:pulse 1.8s infinite;"></div>
+                        <div style="position:absolute; left:5px; top:5px; width:12px; height:12px; border-radius:50%; background:#2196f3; border:2px solid #fff; box-shadow:0 1px 8px rgba(0,0,0,.25);"></div>
+                    </div>
+                `,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            });
+        }
+
+        map = L.map('map', { zoomControl: true }).setView([14.820, 99.800], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        markerMe = L.marker([14.820, 99.800], { icon: createUserIcon() }).addTo(map);
+
+        map.on('dragstart', () => { autoFollow = false; });
+        map.on('zoomstart', () => { autoFollow = false; });
+
+        renderAllShopMarkers();
+        renderShopList();
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(
+                updateLocation,
+                handleGeoError,
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 1000
+                }
+            );
+        } else {
+            document.getElementById('gps-status').innerText = '❌ เบราว์เซอร์นี้ไม่รองรับ GPS';
+            document.getElementById('gps-status').style.color = 'red';
+        }
+
+        function handleGeoError(error) {
+            let msg = '❌ ใช้งาน GPS ไม่ได้';
+            if (error && error.code === 1) msg = '❌ ยังไม่ได้อนุญาตตำแหน่ง';
+            if (error && error.code === 2) msg = '❌ หา GPS ไม่เจอ';
+            if (error && error.code === 3) msg = '❌ GPS ตอบกลับช้าเกินไป';
+            document.getElementById('gps-status').innerText = msg;
+            document.getElementById('gps-status').style.color = 'red';
+        }
+
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const accuracy = position.coords.accuracy || 0;
+            const newLocation = { lat, lng };
+
+            if (accuracy > 120) {
+                document.getElementById('gps-status').innerText = `📡 GPS ยังไม่นิ่ง (±${Math.round(accuracy)} ม.)`;
+                document.getElementById('gps-status').style.color = '#ef6c00';
+            } else {
+                document.getElementById('gps-status').innerText = `📍 GPS พร้อม (±${Math.round(accuracy)} ม.)`;
+                document.getElementById('gps-status').style.color = 'green';
+            }
+
+            currentLocation = newLocation;
+
+            if (!lastAnimatedLatLng) {
+                markerMe.setLatLng([lat, lng]);
+                map.setView([lat, lng], 15);
+                lastAnimatedLatLng = { lat, lng };
+            } else {
+                animateMarker(lastAnimatedLatLng, newLocation, 650);
+                lastAnimatedLatLng = { lat, lng };
+            }
+
+            updateAccuracyCircle(lat, lng, accuracy);
+            renderShopList();
+            findClosestStoreAndRouteThrottled();
+        }
+
+        function animateMarker(from, to, duration = 700) {
+            const start = performance.now();
+
+            function frame(now) {
+                const t = Math.min((now - start) / duration, 1);
+                const eased = 1 - Math.pow(1 - t, 3);
+                const lat = from.lat + (to.lat - from.lat) * eased;
+                const lng = from.lng + (to.lng - from.lng) * eased;
+                markerMe.setLatLng([lat, lng]);
+
+                if (autoFollow) {
+                    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+                }
+
+                if (t < 1) requestAnimationFrame(frame);
+            }
+
+            requestAnimationFrame(frame);
+        }
+
+        function updateAccuracyCircle(lat, lng, accuracy) {
+            if (accuracyCircle) map.removeLayer(accuracyCircle);
+            accuracyCircle = L.circle([lat, lng], {
+                radius: Math.max(accuracy, 5),
+                color: '#2196f3',
+                fillColor: '#2196f3',
+                fillOpacity: 0.10,
+                weight: 1
+            }).addTo(map);
+        }
+
+        function renderAllShopMarkers() {
+            shopMarkers.forEach(m => map.removeLayer(m));
+            shopMarkers = [];
+
+            pendingStores.forEach(store => {
+                const marker = L.marker([store.lat, store.lng])
+                    .bindPopup(`📍 ${store.name}`)
+                    .addTo(map);
+                shopMarkers.push(marker);
+            });
+        }
+
+        function renderShopList() {
+            const listDiv = document.getElementById('shop-list-container');
+            document.getElementById('count-left').innerText = pendingStores.length;
+            listDiv.innerHTML = '';
+
+            const stores = [...pendingStores].map(store => {
+                let dist = null;
+                if (currentLocation) {
+                    dist = getDistance(currentLocation.lat, currentLocation.lng, store.lat, store.lng);
+                }
+                return { ...store, dist };
+            }).sort((a, b) => (a.dist ?? Infinity) - (b.dist ?? Infinity));
+
+            stores.forEach(store => {
+                const li = document.createElement('li');
+                li.className = 'shop-item';
+                const distanceText = store.dist != null ? `${(store.dist / 1000).toFixed(1)} กม.` : '-';
+                li.innerHTML = `<span class="shop-name">📍 ${store.name}</span><span class="shop-dist">${distanceText}</span>`;
+                listDiv.appendChild(li);
+            });
+        }
+
+        function shouldRefetchRoute(targetStore) {
+            if (!currentLocation || !targetStore) return false;
+            const now = Date.now();
+
+            if (!lastRouteFetchLocation) return true;
+            if (lastRoutingTargetId !== targetStore.id) return true;
+
+            const moved = getDistance(
+                currentLocation.lat, currentLocation.lng,
+                lastRouteFetchLocation.lat, lastRouteFetchLocation.lng
+            );
+            const elapsed = now - lastRouteFetchTime;
+
+            return moved > 60 || elapsed > 12000;
+        }
+
+        function findClosestStoreAndRouteThrottled() {
+            if (!currentLocation) return;
+
+            if (pendingStores.length === 0) {
+                document.getElementById('target-name').innerText = '🎉 ส่งครบแล้ว!';
+                document.getElementById('present-dist').innerText = '-';
+                document.getElementById('drive-time').innerText = '';
+                if (routeLine) {
+                    map.removeLayer(routeLine);
+                    routeLine = null;
+                }
+                return;
+            }
+
+            let minMeters = Infinity;
+            let closestIndex = -1;
+
+            for (let i = 0; i < pendingStores.length; i++) {
+                const dist = getDistance(
+                    currentLocation.lat, currentLocation.lng,
+                    pendingStores[i].lat, pendingStores[i].lng
+                );
+                if (dist < minMeters) {
+                    minMeters = dist;
+                    closestIndex = i;
+                }
+            }
+
+            const targetChanged = closestIndex !== targetStoreIndex;
+            targetStoreIndex = closestIndex;
+            const targetStore = pendingStores[targetStoreIndex];
+
+            document.getElementById('target-name').innerText = `ร้าน ${targetStore.name}`;
+
+            if (targetChanged || shouldRefetchRoute(targetStore)) {
+                drawFreeRoute(targetStore);
+                lastRouteFetchTime = Date.now();
+                lastRouteFetchLocation = { ...currentLocation };
+                lastRoutingTargetId = targetStore.id;
+            } else {
+                document.getElementById('present-dist').innerText = `${(minMeters / 1000).toFixed(1)} กม.`;
+                document.getElementById('drive-time').innerText = 'กำลังอัปเดตเส้นทาง...';
+            }
+        }
+
+        function drawFreeRoute(targetStore) {
+            document.getElementById('target-name').innerText = `ร้าน ${targetStore.name}`;
+            document.getElementById('present-dist').innerText = 'กำลังคำนวณ...';
+            document.getElementById('drive-time').innerText = '';
+
+            const url = `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${targetStore.lng},${targetStore.lat}?overview=full&geometries=geojson`;
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.routes || !data.routes.length) throw new Error('No route');
+
+                    const route = data.routes[0];
+                    const distKm = (route.distance / 1000).toFixed(1);
+                    const durationMin = Math.max(1, Math.round(route.duration / 60));
+
+                    document.getElementById('present-dist').innerText = `${distKm} กม.`;
+                    document.getElementById('drive-time').innerText = `ขับรถประมาณ ${durationMin} นาที`;
+
+                    if (routeLine) map.removeLayer(routeLine);
+                    const latlngs = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                    routeLine = L.polyline(latlngs, {
+                        color: '#2196f3',
+                        weight: 6,
+                        opacity: 0.95,
+                        lineJoin: 'round'
+                    }).addTo(map);
+                })
+                .catch(() => {
+                    const straightDist = getDistance(currentLocation.lat, currentLocation.lng, targetStore.lat, targetStore.lng);
+                    document.getElementById('present-dist').innerText = `${(straightDist / 1000).toFixed(1)} กม. (เส้นตรง)`;
+                    document.getElementById('drive-time').innerText = 'เครือข่ายช้า ใช้ค่าประมาณชั่วคราว';
+                    if (routeLine) {
+                        map.removeLayer(routeLine);
+                        routeLine = null;
+                    }
+                });
+        }
+
+        function confirmDelivery() {
+            if (targetStoreIndex === -1 || pendingStores.length === 0) return;
+            const deliveredStore = pendingStores.splice(targetStoreIndex, 1)[0];
+            historyStores.push(deliveredStore);
+            targetStoreIndex = -1;
+            lastRoutingTargetId = null;
+            renderAllShopMarkers();
+            renderShopList();
+            if (currentLocation) findClosestStoreAndRouteThrottled();
+        }
+
+        function undoDelivery() {
+            if (historyStores.length === 0) return;
+            const lastStore = historyStores.pop();
+            pendingStores.push(lastStore);
+            targetStoreIndex = -1;
+            lastRoutingTargetId = null;
+            renderAllShopMarkers();
+            renderShopList();
+            if (currentLocation) findClosestStoreAndRouteThrottled();
+        }
+
+        function recenterMap() {
+            if (!currentLocation) return;
+            autoFollow = true;
+            map.setView([currentLocation.lat, currentLocation.lng], 16, { animate: true });
+        }
+    </script>
+</body>
+</html>
